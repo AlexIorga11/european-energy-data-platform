@@ -1,0 +1,46 @@
+version: 2
+
+unit_tests:
+  - name: test_daily_price_aggregation
+    description: Check daily statistics and separation of UTC dates.
+    model: mart_energy_daily
+
+    given:
+      - input: source('energy_charts', 'energy_prices')
+        rows:
+          - zone: DE-LU
+            interval_start: "2025-01-01 00:00:00+00:00"
+            price_eur_per_mwh: 10
+
+          - zone: DE-LU
+            interval_start: "2025-01-01 01:00:00+00:00"
+            price_eur_per_mwh: 20
+
+          - zone: DE-LU
+            interval_start: "2025-01-01 02:00:00+00:00"
+            price_eur_per_mwh: 30
+
+          - zone: DE-LU
+            interval_start: "2025-01-02 00:00:00+00:00"
+            price_eur_per_mwh: 100
+
+    expect:
+      format: sql
+      rows: |
+        SELECT
+            'DE-LU'::text AS zone,
+            '2025-01-01'::date AS date_utc,
+            3::bigint AS interval_count,
+            20.0000::numeric(12, 4) AS avg_price_eur_per_mwh,
+            10.0000::numeric(12, 4) AS min_price_eur_per_mwh,
+            30.0000::numeric(12, 4) AS max_price_eur_per_mwh
+
+        UNION ALL
+
+        SELECT
+            'DE-LU'::text AS zone,
+            '2025-01-02'::date AS date_utc,
+            1::bigint AS interval_count,
+            100.0000::numeric(12, 4) AS avg_price_eur_per_mwh,
+            100.0000::numeric(12, 4) AS min_price_eur_per_mwh,
+            100.0000::numeric(12, 4) AS max_price_eur_per_mwh
