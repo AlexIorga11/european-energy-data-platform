@@ -1,5 +1,5 @@
 import argparse
-from datetime import date
+from datetime import date, timedelta
 
 from fetch_prices import fetch_prices, save_raw
 from validate_prices import validate_prices
@@ -19,16 +19,38 @@ def run_pipeline(zone, date_utc):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Download, save and validate daily electricity prices."
+        description="Download, save and validate electricity prices by date range."
     )
 
     parser.add_argument(
-        "--date",
+        "--start",
         type=date.fromisoformat,
         required=True,
-        help="UTC date to process, for example 2025-01-02",
+        help="First UTC date to process, inclusive",
+    )
+
+    parser.add_argument(
+        "--end",
+        type=date.fromisoformat,
+        required=True,
+        help="Last UTC date to process, inclusive",
     )
 
     args = parser.parse_args()
 
-    run_pipeline("DE-LU", args.date.isoformat())
+    if args.start > args.end:
+        parser.error("--start must be on or before --end")
+
+    current_date = args.start
+    total_records = 0
+
+    while current_date <= args.end:
+        date_utc = current_date.isoformat()
+        print(f"Processing date: {date_utc}")
+
+        record_count = run_pipeline("DE-LU", date_utc)
+        total_records += record_count
+
+        current_date += timedelta(days=1)
+
+    print(f"Date range completed: {total_records} price records")
