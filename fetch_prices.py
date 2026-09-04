@@ -3,29 +3,49 @@ from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-base_url = "https://api.energy-charts.info/price"
-zone = "DE-LU"
-date_utc = "2025-01-01"
 
-params = {
-    "bzn": zone,
-    "start": f"{date_utc}T00:00Z",
-    "end": f"{date_utc}T23:59Z",
-}
+def fetch_prices(zone, date_utc):
+    base_url = "https://api.energy-charts.info/price"
 
-url = f"{base_url}?{urlencode(params)}"
+    params = {
+        "bzn": zone,
+        "start": f"{date_utc}T00:00Z",
+        "end": f"{date_utc}T23:59Z",
+    }
 
-with urlopen(url, timeout=30) as response:
-    print("HTTP status:", response.status)
-    data = json.load(response)
+    url = f"{base_url}?{urlencode(params)}"
 
-project_dir = Path(__file__).resolve().parent
-output_dir = project_dir / "data" / "raw" / "energy_charts" / f"zone={zone}"
-output_dir.mkdir(parents=True, exist_ok=True)
+    with urlopen(url, timeout=30) as response:
+        print("HTTP status:", response.status)
+        data = json.load(response)
 
-output_path = output_dir / f"{date_utc}.json"
+    return data
 
-with output_path.open("w", encoding="utf-8") as file:
-    json.dump(data, file, indent=2, ensure_ascii=False)
 
-print(f"Saved data to: {output_path}")
+def save_raw(data, zone, date_utc):
+    project_dir = Path(__file__).resolve().parent
+    output_dir = (
+        project_dir
+        / "data"
+        / "raw"
+        / "energy_charts"
+        / f"zone={zone}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    output_path = output_dir / f"{date_utc}.json"
+
+    with output_path.open("w", encoding="utf-8") as file:
+        json.dump(data, file, indent=2, ensure_ascii=False)
+
+    return output_path
+
+
+if __name__ == "__main__":
+    zone = "DE-LU"
+    date_utc = "2025-01-01"
+
+    data = fetch_prices(zone, date_utc)
+    output_path = save_raw(data, zone, date_utc)
+
+    print(f"Saved data to: {output_path}")
