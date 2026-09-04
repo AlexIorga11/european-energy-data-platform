@@ -1,5 +1,7 @@
 import argparse
 import json
+import subprocess
+import sys
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -48,11 +50,29 @@ def run_pipeline(zone, date_utc, refresh=False):
     return record_count, "downloaded"
 
 
+def build_analytics():
+    project_dir = Path(__file__).resolve().parent
+
+    command = [
+        sys.executable,
+        str(project_dir / "run_dbt.py"),
+        "build",
+    ]
+
+    print("Building analytics models and running dbt tests", flush=True)
+
+    subprocess.run(
+        command,
+        cwd=project_dir,
+        check=True,
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Download, validate and load electricity prices "
-            "into PostgreSQL by date range."
+            "Download and load electricity prices, "
+            "then build and test daily analytics."
         )
     )
 
@@ -108,3 +128,7 @@ if __name__ == "__main__":
     print(f"Days downloaded: {day_counts['downloaded']}")
     print(f"Days reused: {day_counts['reused']}")
     print(f"Database records inserted or updated: {total_changed}")
+
+    build_analytics()
+
+    print("Pipeline completed successfully")
