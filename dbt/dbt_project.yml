@@ -1,0 +1,12 @@
+name: european_energy
+version: "1.0.0"
+config-version: 2
+
+profile: european_energy
+
+model-paths:
+  - models
+
+clean-targets:
+  - target
+  - dbt_packages

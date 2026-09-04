@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: mart_energy_daily
+    description: Daily electricity price statistics grouped by bidding zone and UTC date.
+
+    columns:
+      - name: zone
+        data_tests:
+          - not_null
+
+      - name: date_utc
+        data_tests:
+          - not_null
+
+      - name: interval_count
+        data_tests:
+          - not_null
+
+      - name: avg_price_eur_per_mwh
+        data_tests:
+          - not_null
+
+      - name: min_price_eur_per_mwh
+        data_tests:
+          - not_null
+
+      - name: max_price_eur_per_mwh
+        data_tests:
+          - not_null

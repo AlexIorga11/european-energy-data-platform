@@ -1,0 +1,14 @@
+european_energy:
+  target: dev
+
+  outputs:
+    dev:
+      type: postgres
+      host: "127.0.0.1"
+      port: 5432
+      user: energy
+      password: "{{ env_var('POSTGRES_PASSWORD') }}"
+      dbname: energy_warehouse
+      schema: analytics
+      threads: 1
+      connect_timeout: 10
