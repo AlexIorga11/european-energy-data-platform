@@ -10,7 +10,12 @@ from load_prices import load_prices
 from validate_prices import validate_prices
 
 
-def run_pipeline(zone, date_utc, refresh=False):
+def run_pipeline(
+    zone,
+    date_utc,
+    refresh=False,
+    expected_interval_seconds=3600,
+):
     project_dir = Path(__file__).resolve().parent
     input_path = (
         project_dir
@@ -26,7 +31,11 @@ def run_pipeline(zone, date_utc, refresh=False):
             with input_path.open("r", encoding="utf-8") as file:
                 data = json.load(file)
 
-            record_count = validate_prices(data, date_utc)
+            record_count = validate_prices(
+                data,
+                date_utc,
+                expected_interval_seconds=expected_interval_seconds,
+            )
 
         except (OSError, ValueError) as error:
             print(f"Could not reuse local file: {error}")
@@ -44,7 +53,11 @@ def run_pipeline(zone, date_utc, refresh=False):
     output_path = save_raw(data, zone, date_utc)
     print(f"Raw data saved to: {output_path}")
 
-    record_count = validate_prices(data, date_utc)
+    record_count = validate_prices(
+        data,
+        date_utc,
+        expected_interval_seconds=expected_interval_seconds,
+    )
     print(f"Raw data validated: {record_count} price records")
 
     return record_count, "downloaded"
@@ -96,10 +109,22 @@ if __name__ == "__main__":
         help="Download data again even when a valid local file exists",
     )
 
+    parser.add_argument(
+        "--interval-minutes",
+        type=int,
+        choices=[15, 60],
+        default=60,
+        help="Expected price interval in minutes (default: 60)",
+    )
+
     args = parser.parse_args()
 
     if args.start > args.end:
         parser.error("--start must be on or before --end")
+
+    expected_interval_seconds = args.interval_minutes * 60
+
+    print(f"Expected interval: {args.interval_minutes} minutes")
 
     current_date = args.start
     total_records = 0
@@ -114,9 +139,13 @@ if __name__ == "__main__":
             "DE-LU",
             date_utc,
             refresh=args.refresh,
+            expected_interval_seconds=expected_interval_seconds,
         )
 
-        changed_count = load_prices(date_utc)
+        changed_count = load_prices(
+            date_utc,
+            expected_interval_seconds=expected_interval_seconds,
+        )
 
         total_records += record_count
         total_changed += changed_count

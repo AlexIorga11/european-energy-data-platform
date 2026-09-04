@@ -8,7 +8,7 @@ from database import get_connection
 from validate_prices import validate_prices
 
 
-def load_prices(date_utc):
+def load_prices(date_utc, expected_interval_seconds=3600):
     zone = "DE-LU"
     project_dir = Path(__file__).resolve().parent
 
@@ -24,9 +24,13 @@ def load_prices(date_utc):
     with input_path.open("r", encoding="utf-8") as file:
         data = json.load(file)
 
-    record_count = validate_prices(data, date_utc)
-    source_file = input_path.relative_to(project_dir).as_posix()
+    record_count = validate_prices(
+        data,
+        date_utc,
+        expected_interval_seconds=expected_interval_seconds,
+    )
 
+    source_file = input_path.relative_to(project_dir).as_posix()
     rows = []
 
     for timestamp, price in zip(data["unix_seconds"], data["price"]):
@@ -89,5 +93,17 @@ if __name__ == "__main__":
         help="UTC date to load, in YYYY-MM-DD format",
     )
 
+    parser.add_argument(
+        "--interval-minutes",
+        type=int,
+        choices=[15, 60],
+        default=60,
+        help="Expected price interval in minutes (default: 60)",
+    )
+
     args = parser.parse_args()
-    load_prices(args.date.isoformat())
+
+    load_prices(
+        args.date.isoformat(),
+        expected_interval_seconds=args.interval_minutes * 60,
+    )
