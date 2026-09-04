@@ -4,7 +4,17 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
-def validate_prices(data, date_utc):
+def validate_prices(data, date_utc, expected_interval_seconds=3600):
+    if (
+        type(expected_interval_seconds) is not int
+        or expected_interval_seconds <= 0
+        or 86400 % expected_interval_seconds != 0
+    ):
+        raise ValueError(
+            "Expected interval must be a positive integer "
+            "that divides a UTC day exactly"
+        )
+
     if not isinstance(data, dict):
         raise ValueError("Expected a JSON object")
 
@@ -50,6 +60,26 @@ def validate_prices(data, date_utc):
     for price in prices:
         if type(price) not in (int, float) or not math.isfinite(price):
             raise ValueError(f"Invalid price: {price}")
+
+    expected_timestamps = set(
+        range(
+            start_timestamp,
+            end_timestamp,
+            expected_interval_seconds,
+        )
+    )
+    actual_timestamps = set(timestamps)
+
+    missing = expected_timestamps - actual_timestamps
+    unexpected = actual_timestamps - expected_timestamps
+
+    if missing or unexpected:
+        raise ValueError(
+            "Incomplete or misaligned UTC day: "
+            f"{len(missing)} missing intervals, "
+            f"{len(unexpected)} unexpected timestamps "
+            f"for a {expected_interval_seconds}-second resolution"
+        )
 
     return len(prices)
 
