@@ -9,10 +9,32 @@ permissions:
   contents: read
 
 jobs:
-  python-tests:
-    name: Python validation tests
+  tests:
+    name: Python and dbt tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+
+        env:
+          POSTGRES_DB: energy_warehouse
+          POSTGRES_USER: energy
+          POSTGRES_PASSWORD: ci_testing_password
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd "pg_isready -U energy -d energy_warehouse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_PASSWORD: ci_testing_password
+      PGPASSWORD: ci_testing_password
 
     steps:
       - name: Check out repository
@@ -25,5 +47,17 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Run validation tests
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run Python validation tests
         run: python -m unittest discover -s tests -v
+
+      - name: Create staging tables
+        run: psql -h 127.0.0.1 -U energy -d energy_warehouse -v ON_ERROR_STOP=1 -f sql/create_tables.sql
+
+      - name: Check dbt connection
+        run: python run_dbt.py debug
+
+      - name: Build and test dbt project
+        run: python run_dbt.py build
