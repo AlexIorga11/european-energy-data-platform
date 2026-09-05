@@ -61,6 +61,7 @@ def build_daily_chart(
     color: str,
     start_date,
     end_date,
+    height: int = 350,
 ) -> go.Figure:
     figure = go.Figure(
         data=[
@@ -86,7 +87,7 @@ def build_daily_chart(
         xaxis_title="Date (UTC)",
         yaxis_title=f"{series_name} ({unit})",
         hovermode="x unified",
-        height=350,
+        height=height,
         margin={"l": 20, "r": 20, "t": 20, "b": 20},
     )
 
@@ -181,6 +182,7 @@ def main() -> None:
         color="#2563EB",
         start_date=start_date,
         end_date=end_date,
+        height=400,
     )
 
     st.plotly_chart(
@@ -210,37 +212,45 @@ def main() -> None:
                 "Missing values appear as gaps in the charts."
             )
 
-        temperature_chart = build_daily_chart(
-            rows=selected_rows,
-            value_column="avg_temperature_c",
-            series_name="Average temperature",
-            unit="°C",
-            color="#EA580C",
-            start_date=start_date,
-            end_date=end_date,
-        )
+        temperature_column, wind_column = st.columns(2)
 
-        st.plotly_chart(
-            temperature_chart,
-            config={"displaylogo": False},
-            key="temperature_chart",
-        )
+        with temperature_column:
+            st.markdown("#### Daily average temperature")
 
-        wind_chart = build_daily_chart(
-            rows=selected_rows,
-            value_column="avg_wind_speed_kmh",
-            series_name="Average wind speed",
-            unit="km/h",
-            color="#0D9488",
-            start_date=start_date,
-            end_date=end_date,
-        )
+            temperature_chart = build_daily_chart(
+                rows=selected_rows,
+                value_column="avg_temperature_c",
+                series_name="Temperature",
+                unit="°C",
+                color="#EA580C",
+                start_date=start_date,
+                end_date=end_date,
+            )
 
-        st.plotly_chart(
-            wind_chart,
-            config={"displaylogo": False},
-            key="wind_chart",
-        )
+            st.plotly_chart(
+                temperature_chart,
+                config={"displaylogo": False},
+                key="temperature_chart",
+            )
+
+        with wind_column:
+            st.markdown("#### Daily average wind speed")
+
+            wind_chart = build_daily_chart(
+                rows=selected_rows,
+                value_column="avg_wind_speed_kmh",
+                series_name="Wind speed",
+                unit="km/h",
+                color="#0D9488",
+                start_date=start_date,
+                end_date=end_date,
+            )
+
+            st.plotly_chart(
+                wind_chart,
+                config={"displaylogo": False},
+                key="wind_chart",
+            )
 
     with st.expander("View daily data"):
         st.dataframe(
