@@ -149,6 +149,22 @@ class TestWeatherDatabaseLoading(unittest.TestCase):
         )
         self.assertEqual(stored_rows[1:], original_rows[1:])
 
+    def test_invalid_row_rolls_back_entire_load(self) -> None:
+        invalid_rows = list(self.rows)
+        invalid_row = list(invalid_rows[12])
+        invalid_row[3] = Decimal("-1.00")
+        invalid_rows[12] = tuple(invalid_row)
+
+        with self.assertRaises(psycopg.errors.CheckViolation):
+            insert_weather_rows(invalid_rows)
+
+        self.assertEqual(self.read_test_rows(), [])
+
+        changed_rows = insert_weather_rows(self.rows)
+
+        self.assertEqual(changed_rows, 24)
+        self.assertEqual(len(self.read_test_rows()), 24)
+
 
 if __name__ == "__main__":
     unittest.main()
