@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   tests:
-    name: Python and dbt tests
+    name: Python, PostgreSQL integration and dbt tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -54,7 +54,25 @@ jobs:
         run: python -m unittest discover -s tests -v
 
       - name: Create staging tables
-        run: psql -h 127.0.0.1 -U energy -d energy_warehouse -v ON_ERROR_STOP=1 -f sql/create_tables.sql
+        run: >-
+          psql -h 127.0.0.1 -U energy -d energy_warehouse
+          -v ON_ERROR_STOP=1
+          -f sql/create_tables.sql
+
+      - name: Create integration test database
+        run: >-
+          psql -h 127.0.0.1 -U energy -d postgres
+          -v ON_ERROR_STOP=1
+          -c "CREATE DATABASE energy_warehouse_test;"
+
+      - name: Create integration test tables
+        run: >-
+          psql -h 127.0.0.1 -U energy -d energy_warehouse_test
+          -v ON_ERROR_STOP=1
+          -f sql/create_tables.sql
+
+      - name: Run PostgreSQL integration tests
+        run: python -m unittest discover -s integration_tests -v
 
       - name: Check dbt connection
         run: python run_dbt.py debug
