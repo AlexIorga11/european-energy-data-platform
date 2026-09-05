@@ -3,8 +3,12 @@ version: 2
 sources:
   - name: energy_charts
     schema: staging
-    description: Electricity prices loaded by the Python pipeline.
 
     tables:
       - name: energy_prices
-        description: One electricity price per bidding zone and interval.
+
+  - name: open_meteo
+    schema: staging
+
+    tables:
+      - name: weather_hourly

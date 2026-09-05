@@ -1,0 +1,46 @@
+version: 2
+
+models:
+  - name: mart_weather_daily
+    description: Daily weather statistics calculated from hourly Open-Meteo data.
+
+    columns:
+      - name: location
+        description: Name of the weather location.
+        data_tests:
+          - not_null
+
+      - name: date_utc
+        description: UTC calendar date.
+        data_tests:
+          - not_null
+
+      - name: interval_count
+        description: Number of hourly weather records for the day.
+        data_tests:
+          - not_null
+
+      - name: avg_temperature_c
+        description: Average daily temperature in degrees Celsius.
+        data_tests:
+          - not_null
+
+      - name: min_temperature_c
+        description: Minimum daily temperature in degrees Celsius.
+        data_tests:
+          - not_null
+
+      - name: max_temperature_c
+        description: Maximum daily temperature in degrees Celsius.
+        data_tests:
+          - not_null
+
+      - name: avg_wind_speed_kmh
+        description: Average daily wind speed in kilometres per hour.
+        data_tests:
+          - not_null
+
+      - name: max_wind_speed_kmh
+        description: Maximum daily wind speed in kilometres per hour.
+        data_tests:
+          - not_null
