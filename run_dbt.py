@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import sys
@@ -5,6 +6,8 @@ import sysconfig
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+from locations import LOCATIONS
 
 
 def find_dbt_executable() -> Path:
@@ -40,6 +43,10 @@ def main() -> int:
 
     dbt_executable = find_dbt_executable()
 
+    variables = {
+        "weather_locations": LOCATIONS,
+    }
+
     command = [
         str(dbt_executable),
         *sys.argv[1:],
@@ -47,6 +54,8 @@ def main() -> int:
         str(dbt_dir),
         "--profiles-dir",
         str(dbt_dir),
+        "--vars",
+        json.dumps(variables),
     ]
 
     result = subprocess.run(

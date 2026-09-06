@@ -7,23 +7,22 @@ from pathlib import Path
 import psycopg
 from dotenv import load_dotenv
 
+from locations import DEFAULT_LOCATION, LOCATIONS, get_location
 from validate_weather import (
     get_weather_file_path,
     load_and_validate_weather,
 )
 
 
-LOCATION_NAME = "berlin"
-
-
 def get_database_connection() -> psycopg.Connection:
-    load_dotenv()
+    project_dir = Path(__file__).resolve().parent
+    load_dotenv(project_dir / ".env")
 
     password = os.getenv("POSTGRES_PASSWORD")
 
     if not password:
         raise RuntimeError(
-            "POSTGRES_PASSWORD is missing from the .env file"
+            "POSTGRES_PASSWORD is missing from the environment"
         )
 
     return psycopg.connect(
@@ -32,13 +31,17 @@ def get_database_connection() -> psycopg.Connection:
         dbname="energy_warehouse",
         user="energy",
         password=password,
+        connect_timeout=5,
     )
 
 
 def build_weather_rows(
     data: dict,
     source_file: Path,
+    location_id: str = DEFAULT_LOCATION,
 ) -> list[tuple]:
+    get_location(location_id)
+
     hourly = data["hourly"]
 
     latitude = Decimal(str(data["latitude"]))
@@ -46,11 +49,7 @@ def build_weather_rows(
 
     rows = []
 
-    for (
-        time_text,
-        temperature,
-        wind_speed,
-    ) in zip(
+    for time_text, temperature, wind_speed in zip(
         hourly["time"],
         hourly["temperature_2m"],
         hourly["wind_speed_10m"],
@@ -62,7 +61,7 @@ def build_weather_rows(
 
         rows.append(
             (
-                LOCATION_NAME,
+                location_id,
                 interval_start,
                 Decimal(str(temperature)),
                 Decimal(str(wind_speed)),
@@ -129,8 +128,14 @@ def insert_weather_rows(rows: list[tuple]) -> int:
     return changed_rows
 
 
-def load_weather(target_date: date) -> int:
-    file_path = get_weather_file_path(target_date)
+def load_weather(
+    target_date: date,
+    location_id: str = DEFAULT_LOCATION,
+) -> int:
+    file_path = get_weather_file_path(
+        target_date,
+        location_id,
+    )
 
     data = load_and_validate_weather(
         file_path=file_path,
@@ -140,17 +145,16 @@ def load_weather(target_date: date) -> int:
     rows = build_weather_rows(
         data=data,
         source_file=file_path,
+        location_id=location_id,
     )
 
     changed_rows = insert_weather_rows(rows)
 
     print(
         f"Prepared {len(rows)} weather rows for "
-        f"{LOCATION_NAME} on {target_date.isoformat()}."
+        f"{location_id} on {target_date.isoformat()}."
     )
-    print(
-        f"Inserted or updated {changed_rows} rows."
-    )
+    print(f"Inserted or updated {changed_rows} rows.")
 
     return changed_rows
 
@@ -164,6 +168,13 @@ def parse_arguments() -> argparse.Namespace:
         "--date",
         required=True,
         help="Date in YYYY-MM-DD format.",
+    )
+
+    parser.add_argument(
+        "--location",
+        choices=sorted(LOCATIONS),
+        default=DEFAULT_LOCATION,
+        help="Weather location (default: berlin).",
     )
 
     return parser.parse_args()
@@ -180,9 +191,12 @@ def main() -> None:
         ) from error
 
     try:
-        load_weather(target_date)
+        load_weather(
+            target_date=target_date,
+            location_id=arguments.location,
+        )
     except (
-        FileNotFoundError,
+        OSError,
         ValueError,
         RuntimeError,
         psycopg.Error,

@@ -5,6 +5,8 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from locations import DEFAULT_LOCATION, LOCATIONS
+
 
 PROJECT_DIR = Path(__file__).resolve().parent
 LOG_DIR = PROJECT_DIR / "logs"
@@ -36,6 +38,14 @@ def parse_arguments() -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--locations",
+        nargs="+",
+        choices=sorted(LOCATIONS),
+        default=[DEFAULT_LOCATION],
+        help="Weather locations to process (default: berlin).",
+    )
+
+    parser.add_argument(
         "--interval-minutes",
         type=int,
         choices=[15, 60],
@@ -50,6 +60,8 @@ def parse_arguments() -> argparse.Namespace:
 
     if arguments.lookback_days < 1:
         parser.error("--lookback-days must be at least 1")
+
+    arguments.locations = list(dict.fromkeys(arguments.locations))
 
     return arguments
 
@@ -94,6 +106,8 @@ def main() -> int:
             start_date.isoformat(),
             "--end",
             end_date.isoformat(),
+            "--locations",
+            *arguments.locations,
             "--interval-minutes",
             str(arguments.interval_minutes),
         ],
@@ -103,12 +117,16 @@ def main() -> int:
         f"Processing {start_date.isoformat()} "
         f"through {end_date.isoformat()}."
     )
+    print(f"Weather locations: {', '.join(arguments.locations)}")
     print(f"Run output will be written to: {log_path}", flush=True)
 
     with log_path.open("w", encoding="utf-8") as log_file:
         log_file.write(f"Started at: {now.isoformat()}\n")
         log_file.write(
             f"Date range: {start_date} through {end_date}\n"
+        )
+        log_file.write(
+            f"Weather locations: {', '.join(arguments.locations)}\n"
         )
 
         try:
@@ -135,6 +153,7 @@ def main() -> int:
             return 1
 
         finished_at = datetime.now(timezone.utc)
+
         log_file.write(
             f"\nRun completed successfully at: "
             f"{finished_at.isoformat()}\n"

@@ -7,21 +7,24 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+from locations import DEFAULT_LOCATION, LOCATIONS, get_location
+
 
 API_URL = "https://archive-api.open-meteo.com/v1/archive"
-
-LOCATION_NAME = "berlin"
-LATITUDE = 52.52
-LONGITUDE = 13.41
 
 MAX_ATTEMPTS = 3
 REQUEST_TIMEOUT_SECONDS = 30
 
 
-def build_url(target_date: date) -> str:
+def build_url(
+    target_date: date,
+    location_id: str = DEFAULT_LOCATION,
+) -> str:
+    location = get_location(location_id)
+
     parameters = {
-        "latitude": LATITUDE,
-        "longitude": LONGITUDE,
+        "latitude": location["latitude"],
+        "longitude": location["longitude"],
         "start_date": target_date.isoformat(),
         "end_date": target_date.isoformat(),
         "hourly": "temperature_2m,wind_speed_10m",
@@ -31,18 +34,26 @@ def build_url(target_date: date) -> str:
     return f"{API_URL}?{urlencode(parameters)}"
 
 
-def get_output_path(target_date: date) -> Path:
+def get_output_path(
+    target_date: date,
+    location_id: str = DEFAULT_LOCATION,
+) -> Path:
+    get_location(location_id)
+
     return (
         Path("data")
         / "raw"
         / "open_meteo"
-        / f"location={LOCATION_NAME}"
+        / f"location={location_id}"
         / f"{target_date.isoformat()}.json"
     )
 
 
-def download_weather_data(target_date: date) -> dict:
-    url = build_url(target_date)
+def download_weather_data(
+    target_date: date,
+    location_id: str = DEFAULT_LOCATION,
+) -> dict:
+    url = build_url(target_date, location_id)
 
     request = Request(
         url,
@@ -68,7 +79,11 @@ def download_weather_data(target_date: date) -> dict:
                 ) from error
 
             retry_after = error.headers.get("Retry-After")
-            wait_seconds = int(retry_after) if retry_after else attempt * 2
+            wait_seconds = (
+                int(retry_after)
+                if retry_after
+                else attempt * 2
+            )
 
             print(
                 f"Request failed with HTTP {error.code}. "
@@ -79,7 +94,8 @@ def download_weather_data(target_date: date) -> dict:
         except URLError as error:
             if attempt == MAX_ATTEMPTS:
                 raise RuntimeError(
-                    f"Could not connect to the weather API: {error.reason}"
+                    "Could not connect to the weather API: "
+                    f"{error.reason}"
                 ) from error
 
             wait_seconds = attempt * 2
@@ -93,7 +109,10 @@ def download_weather_data(target_date: date) -> dict:
     raise RuntimeError("Weather data could not be downloaded")
 
 
-def save_weather_data(data: dict, output_path: Path) -> None:
+def save_weather_data(
+    data: dict,
+    output_path: Path,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     temporary_path = output_path.with_suffix(".json.tmp")
@@ -110,19 +129,27 @@ def save_weather_data(data: dict, output_path: Path) -> None:
 def fetch_weather(
     target_date: date,
     refresh: bool = False,
+    location_id: str = DEFAULT_LOCATION,
 ) -> Path:
-    output_path = get_output_path(target_date)
+    output_path = get_output_path(
+        target_date,
+        location_id,
+    )
 
     if output_path.exists() and not refresh:
         print(f"Using cached weather file: {output_path}")
         return output_path
 
     print(
-        f"Downloading weather data for {LOCATION_NAME} "
+        f"Downloading weather data for {location_id} "
         f"on {target_date.isoformat()}."
     )
 
-    data = download_weather_data(target_date)
+    data = download_weather_data(
+        target_date,
+        location_id,
+    )
+
     save_weather_data(data, output_path)
 
     print(f"Weather data saved to: {output_path}")
@@ -139,6 +166,13 @@ def parse_arguments() -> argparse.Namespace:
         "--date",
         required=True,
         help="Date in YYYY-MM-DD format.",
+    )
+
+    parser.add_argument(
+        "--location",
+        choices=sorted(LOCATIONS),
+        default=DEFAULT_LOCATION,
+        help="Weather location (default: berlin).",
     )
 
     parser.add_argument(
@@ -163,6 +197,7 @@ def main() -> None:
     fetch_weather(
         target_date=target_date,
         refresh=arguments.refresh,
+        location_id=arguments.location,
     )
 
 

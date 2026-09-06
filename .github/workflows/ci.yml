@@ -10,22 +10,19 @@ permissions:
 
 jobs:
   tests:
-    name: Python, PostgreSQL integration and dbt tests
+    name: Python, dashboard, PostgreSQL integration and dbt tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     services:
       postgres:
         image: postgres:17
-
         env:
           POSTGRES_DB: energy_warehouse
           POSTGRES_USER: energy
           POSTGRES_PASSWORD: ci_testing_password
-
         ports:
           - 5432:5432
-
         options: >-
           --health-cmd "pg_isready -U energy -d energy_warehouse"
           --health-interval 5s
@@ -35,6 +32,7 @@ jobs:
     env:
       POSTGRES_PASSWORD: ci_testing_password
       PGPASSWORD: ci_testing_password
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
 
     steps:
       - name: Check out repository
@@ -52,6 +50,9 @@ jobs:
 
       - name: Run Python validation tests
         run: python -m unittest discover -s tests -v
+
+      - name: Run dashboard regression tests
+        run: python -m unittest discover -s dashboard_tests -v
 
       - name: Create staging tables
         run: >-

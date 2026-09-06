@@ -4,16 +4,20 @@ import math
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
+from locations import DEFAULT_LOCATION, LOCATIONS, get_location
 
-LOCATION_NAME = "berlin"
 
+def get_weather_file_path(
+    target_date: date,
+    location_id: str = DEFAULT_LOCATION,
+) -> Path:
+    get_location(location_id)
 
-def get_weather_file_path(target_date: date) -> Path:
     return (
         Path("data")
         / "raw"
         / "open_meteo"
-        / f"location={LOCATION_NAME}"
+        / f"location={location_id}"
         / f"{target_date.isoformat()}.json"
     )
 
@@ -78,9 +82,7 @@ def validate_weather(
         raise ValueError("Hourly weather data cannot be empty")
 
     if not (
-        len(times)
-        == len(temperatures)
-        == len(wind_speeds)
+        len(times) == len(temperatures) == len(wind_speeds)
     ):
         raise ValueError(
             "Times, temperatures and wind speeds must have equal lengths"
@@ -142,6 +144,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Date in YYYY-MM-DD format.",
     )
 
+    parser.add_argument(
+        "--location",
+        choices=sorted(LOCATIONS),
+        default=DEFAULT_LOCATION,
+        help="Weather location (default: berlin).",
+    )
+
     return parser.parse_args()
 
 
@@ -155,18 +164,17 @@ def main() -> None:
             "Invalid date. Use the YYYY-MM-DD format."
         ) from error
 
-    file_path = get_weather_file_path(target_date)
+    file_path = get_weather_file_path(
+        target_date,
+        arguments.location,
+    )
 
     try:
         load_and_validate_weather(
             file_path=file_path,
             target_date=target_date,
         )
-    except (
-        FileNotFoundError,
-        json.JSONDecodeError,
-        ValueError,
-    ) as error:
+    except (OSError, ValueError) as error:
         raise SystemExit(
             f"Weather validation failed: {error}"
         ) from error

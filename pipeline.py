@@ -1,286 +1,179 @@
 import argparse
-import json
+import os
 import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from fetch_prices import fetch_prices, save_raw
-from fetch_weather import fetch_weather
+import psycopg
+
+import fetch_price_batches as price_batches
+import fetch_weather_batches as weather_batches
 from load_prices import load_prices
 from load_weather import load_weather
-from validate_prices import validate_prices
-from validate_weather import (
-    get_weather_file_path,
-    load_and_validate_weather,
-)
+from locations import DEFAULT_LOCATION, LOCATIONS, get_location
+from price_rules import price_interval
 
 
-def run_price_pipeline(
-    zone,
-    date_utc,
-    refresh=False,
-    expected_interval_seconds=3600,
-):
-    project_dir = Path(__file__).resolve().parent
-    input_path = (
-        project_dir
-        / "data"
-        / "raw"
-        / "energy_charts"
-        / f"zone={zone}"
-        / f"{date_utc}.json"
-    )
-
-    if input_path.exists() and not refresh:
-        try:
-            with input_path.open("r", encoding="utf-8") as file:
-                data = json.load(file)
-
-            record_count = validate_prices(
-                data,
-                date_utc,
-                expected_interval_seconds=expected_interval_seconds,
-            )
-
-        except (OSError, ValueError) as error:
-            print(f"Could not reuse local price file: {error}")
-            print(f"Downloading price data again for {date_utc}")
-
-        else:
-            print(
-                f"Using validated local price data for {date_utc}: "
-                f"{record_count} records"
-            )
-            return record_count, "reused"
-
-    data = fetch_prices(zone, date_utc)
-
-    output_path = save_raw(data, zone, date_utc)
-    print(f"Raw price data saved to: {output_path}")
-
-    record_count = validate_prices(
-        data,
-        date_utc,
-        expected_interval_seconds=expected_interval_seconds,
-    )
-    print(f"Raw price data validated: {record_count} records")
-
-    return record_count, "downloaded"
+PROJECT_DIR = Path(__file__).resolve().parent
 
 
-def run_weather_pipeline(
-    target_date,
-    refresh=False,
-):
-    input_path = get_weather_file_path(target_date)
+def iter_batches(start, end, batch_days):
+    days = []
+    current = start
+    while current <= end:
+        days.append(current)
+        if len(days) == batch_days:
+            yield days
+            days = []
+        current += timedelta(days=1)
+    if days:
+        yield days
 
-    if input_path.exists() and not refresh:
-        try:
-            data = load_and_validate_weather(
-                file_path=input_path,
-                target_date=target_date,
-            )
 
-        except (
-            OSError,
-            json.JSONDecodeError,
-            ValueError,
-        ) as error:
-            print(f"Could not reuse local weather file: {error}")
-            print(
-                "Downloading weather data again for "
-                f"{target_date.isoformat()}"
-            )
+def prepare_prices(zone, days, interval_minutes, refresh):
+    if not refresh:
+        price_batches.fetch_batches(
+            zone=zone,
+            start=days[0],
+            end=days[-1],
+            batch_days=len(days),
+            interval_minutes=interval_minutes,
+        )
+        return
 
-        else:
-            record_count = len(data["hourly"]["time"])
+    data = price_batches.download_range(zone, days[0], days[-1])
+    daily = price_batches.split_and_validate(data, days, interval_minutes * 60)
+    for day, payload in daily.items():
+        price_batches.save_raw(payload, zone, day.isoformat())
+    print(f"Refreshed price files: {len(days)} days", flush=True)
 
-            print(
-                "Using validated local weather data for "
-                f"{target_date.isoformat()}: "
-                f"{record_count} records"
-            )
 
-            return record_count, "reused"
+def prepare_weather(location_id, days, refresh):
+    if not refresh:
+        weather_batches.fetch_batches(
+            location_id=location_id,
+            start=days[0],
+            end=days[-1],
+            batch_days=len(days),
+        )
+        return
 
-    output_path = fetch_weather(
-        target_date=target_date,
-        refresh=True,
-    )
-
-    data = load_and_validate_weather(
-        file_path=output_path,
-        target_date=target_date,
-    )
-
-    record_count = len(data["hourly"]["time"])
-
-    print(
-        f"Raw weather data validated: "
-        f"{record_count} records"
-    )
-
-    return record_count, "downloaded"
+    data = weather_batches.download_range(location_id, days[0], days[-1])
+    daily = weather_batches.split_and_validate(data, days)
+    for day, payload in daily.items():
+        weather_batches.save_daily(payload, location_id, day)
+    print(f"Refreshed weather files: {location_id}, {len(days)} days", flush=True)
 
 
 def build_analytics():
-    project_dir = Path(__file__).resolve().parent
-
-    command = [
-        sys.executable,
-        str(project_dir / "run_dbt.py"),
-        "build",
-    ]
-
-    print(
-        "Building analytics models and running dbt tests",
-        flush=True,
-    )
-
+    print("Building analytics models and running dbt tests", flush=True)
     subprocess.run(
-        command,
-        cwd=project_dir,
+        [sys.executable, str(PROJECT_DIR / "run_dbt.py"), "build"],
+        cwd=PROJECT_DIR,
         check=True,
     )
 
 
-if __name__ == "__main__":
+def parse_arguments():
     parser = argparse.ArgumentParser(
-        description=(
-            "Download and load electricity prices and weather data, "
-            "then build and test analytics models."
-        )
+        description="Download data in batches, load PostgreSQL and run dbt."
     )
-
+    parser.add_argument("--start", type=date.fromisoformat, required=True)
+    parser.add_argument("--end", type=date.fromisoformat, required=True)
     parser.add_argument(
-        "--start",
-        type=date.fromisoformat,
-        required=True,
-        help="First UTC date to process, inclusive",
+        "--locations", nargs="+", choices=sorted(LOCATIONS),
+        default=[DEFAULT_LOCATION],
     )
-
     parser.add_argument(
-        "--end",
-        type=date.fromisoformat,
-        required=True,
-        help="Last UTC date to process, inclusive",
+        "--batch-days", type=int, choices=range(1, 31), default=7,
+        help="Maximum days per download batch (default: 7)",
     )
-
     parser.add_argument(
-        "--refresh",
-        action="store_true",
-        help=(
-            "Download data again even when valid local files exist"
-        ),
+        "--interval-minutes", type=int, choices=[15, 30, 60],
+        help="Override the automatic price interval for all selected zones",
     )
-
     parser.add_argument(
-        "--interval-minutes",
-        type=int,
-        choices=[15, 60],
-        default=60,
-        help="Expected price interval in minutes (default: 60)",
+        "--refresh", action="store_true",
+        help="Download again even when valid local files exist",
     )
-
     args = parser.parse_args()
-
     if args.start > args.end:
         parser.error("--start must be on or before --end")
 
-    expected_interval_seconds = args.interval_minutes * 60
+    args.locations = list(dict.fromkeys(args.locations))
+    zones = sorted({
+        get_location(location_id)["energy_zone"]
+        for location_id in args.locations
+        if get_location(location_id)["energy_zone"] is not None
+    })
+    try:
+        args.zone_intervals = {
+            zone: args.interval_minutes or price_interval(zone, args.start, args.end)
+            for zone in zones
+        }
+    except ValueError as error:
+        parser.error(str(error))
+    return args
 
-    print(f"Expected price interval: {args.interval_minutes} minutes")
 
-    current_date = args.start
+def main():
+    args = parse_arguments()
+    os.chdir(PROJECT_DIR)
+    price_changes = {zone: 0 for zone in args.zone_intervals}
+    weather_changes = {location_id: 0 for location_id in args.locations}
+    completed_days = 0
 
-    total_price_records = 0
-    total_weather_records = 0
+    print(f"Period: {args.start} to {args.end}", flush=True)
+    print(f"Weather locations: {', '.join(args.locations)}", flush=True)
+    print(f"Maximum batch size: {args.batch_days} days", flush=True)
+    for zone, interval in args.zone_intervals.items():
+        print(f"Price zone: {zone}, expected interval: {interval} minutes", flush=True)
 
-    total_price_changes = 0
-    total_weather_changes = 0
+    try:
+        for days in iter_batches(args.start, args.end, args.batch_days):
+            print(f"\nProcessing batch: {days[0]} to {days[-1]}", flush=True)
+            for zone, interval in args.zone_intervals.items():
+                prepare_prices(zone, days, interval, args.refresh)
+            for location_id in args.locations:
+                prepare_weather(location_id, days, args.refresh)
 
-    price_day_counts = {
-        "downloaded": 0,
-        "reused": 0,
-    }
+            for day in days:
+                print(f"Loading PostgreSQL: {day}", flush=True)
+                for zone, interval in args.zone_intervals.items():
+                    price_changes[zone] += load_prices(
+                        day.isoformat(),
+                        expected_interval_seconds=interval * 60,
+                        zone=zone,
+                    )
+                for location_id in args.locations:
+                    weather_changes[location_id] += load_weather(
+                        day, location_id=location_id,
+                    )
+                completed_days += 1
 
-    weather_day_counts = {
-        "downloaded": 0,
-        "reused": 0,
-    }
-
-    while current_date <= args.end:
-        date_utc = current_date.isoformat()
-
-        print()
-        print(f"Processing date: {date_utc}")
-
-        price_record_count, price_status = run_price_pipeline(
-            zone="DE-LU",
-            date_utc=date_utc,
-            refresh=args.refresh,
-            expected_interval_seconds=expected_interval_seconds,
+        build_analytics()
+    except (
+        OSError, ValueError, RuntimeError,
+        psycopg.Error, subprocess.CalledProcessError,
+    ) as error:
+        print(f"Pipeline stopped: {error}", flush=True)
+        print(
+            "Saved files and committed database rows remain available. "
+            "Rerun the same command to resume. Analytics may be outdated.",
+            flush=True,
         )
+        return 1
 
-        price_changed_count = load_prices(
-            date_utc,
-            expected_interval_seconds=expected_interval_seconds,
-        )
-
-        weather_record_count, weather_status = (
-            run_weather_pipeline(
-                target_date=current_date,
-                refresh=args.refresh,
-            )
-        )
-
-        weather_changed_count = load_weather(current_date)
-
-        total_price_records += price_record_count
-        total_weather_records += weather_record_count
-
-        total_price_changes += price_changed_count
-        total_weather_changes += weather_changed_count
-
-        price_day_counts[price_status] += 1
-        weather_day_counts[weather_status] += 1
-
-        current_date += timedelta(days=1)
-
-    print()
-    print("Pipeline summary")
-    print(
-        f"Price records checked: {total_price_records}"
-    )
-    print(
-        f"Weather records checked: {total_weather_records}"
-    )
-    print(
-        f"Price days downloaded: "
-        f"{price_day_counts['downloaded']}"
-    )
-    print(
-        f"Price days reused: "
-        f"{price_day_counts['reused']}"
-    )
-    print(
-        f"Weather days downloaded: "
-        f"{weather_day_counts['downloaded']}"
-    )
-    print(
-        f"Weather days reused: "
-        f"{weather_day_counts['reused']}"
-    )
-    print(
-        "Price records inserted or updated: "
-        f"{total_price_changes}"
-    )
-    print(
-        "Weather records inserted or updated: "
-        f"{total_weather_changes}"
-    )
-
-    build_analytics()
-
+    print("\nPipeline summary")
+    print(f"Days processed: {completed_days}")
+    for zone, changes in price_changes.items():
+        print(f"Price records inserted or updated ({zone}): {changes}")
+    for location_id, changes in weather_changes.items():
+        print(f"Weather records inserted or updated ({location_id}): {changes}")
     print("Pipeline completed successfully")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
